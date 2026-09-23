@@ -392,7 +392,7 @@ copy_broo() {
 
     if [[ ! ":$PATH:" == *"$BROO_LOC:"* ]]; then
         echo "Please add $BROO_LOC to your path before running Broo!"
-    fi
+    fi 
 
     echo -e "Done setting up the 'broo' command!\n"
 }
@@ -452,13 +452,66 @@ test_broo() {
 
 # Script will start executing from here when run from terminal.
 
-echo -e "Setting up Broo...\n"
+run_all=false
+selected_steps=()
 
-install_dependencies
-check_mumble
-set_up_mumble
-copy_broo
-test_broo
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --install)
+            selected_steps+=("install_dependencies")
+            shift
+            ;;
+        --check-mumble)
+            selected_steps+=("check_mumble")
+            shift
+            ;;
+        --setup-mumble)
+            selected_steps+=("set_up_mumble")
+            shift
+            ;;
+        --copy-broo)
+            selected_steps+=("copy_broo")
+            shift
+            ;;
+        --test-broo)
+            selected_steps+=("test_broo")
+            shift
+            ;;
+        -h|--help)
+            echo "Usage: $0 [OPTION]"
+            echo "  --install        Install dependencies"
+            echo "  --check-mumble   Check if mumble is installed"
+            echo "  --setup-mumble   Set up mumble for quick use"
+            echo "  --copy-broo      Copy broo command"
+            echo "  --test-broo      Test broo offscreen"
+            echo "  (no args)        Run all steps in order"
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Use --help for usage."
+            exit 1
+            ;;
+    esac
+done
+
+if [[ ${#selected_steps[@]} -eq 0 ]]; then
+    run_all=true
+fi
+
+if [[ "$run_all" == "true" ]]; then
+    echo -e "Setting up Broo...\n"
+    install_dependencies
+    check_mumble
+    set_up_mumble
+    copy_broo
+    test_broo
+else
+    echo -e "Running selected steps...\n"
+    for step in "${selected_steps[@]}"; do
+        $step
+    done
+fi
 
 echo -e "
     Now set up the mobile app.
