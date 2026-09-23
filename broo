@@ -136,54 +136,69 @@ stop_mumble_client() {
 
 
 add_sink_pipewire() {
-    # Creates a virtual sink using a PipeWire loopback, and saves its PID.
-
+    # Create the virtual sink that receives Mumble's audio.
     nohup pw-loopback \
         --capture-props='media.class=Audio/Sink
-                         node.name=Shru node.description=Shru' \
-    &>/dev/null 2>&1 &
+                         node.name=Shru
+                         node.description=Shru
+                         audio.position=[FL FR]' \
+        --playback-props='audio.position=[FL FR]' \
+        &>/dev/null 2>&1 &
 
     echo $! > "$VAR_RUN/pw_loopback.pid"
-    sleep 3  # Give time for it to set up.
-}  # End of add_sink_pipewire()
-
+    sleep 2
+}
 
 remove_sink_pipewire() {
-    # Removes the PipeWire loopback, and deletes the PID file.
-
     echo -n "."
-    kill $(<"$VAR_RUN/pw_loopback.pid")
-    rm "$VAR_RUN/pw_loopback.pid"
-}  # End of remove_sink_pipewire()
+
+    if [[ -f "$VAR_RUN/pw_loopback.pid" ]]; then
+        local pid
+        pid=$(<"$VAR_RUN/pw_loopback.pid")
+
+        kill "$pid" 2>/dev/null || true
+
+        # Give PipeWire time to remove the client/node.
+        sleep 1
+
+        rm -f "$VAR_RUN/pw_loopback.pid"
+    fi
+
+    # Also remove any stale Broo/Shru loopbacks left by a previous crash.
+    pkill -f 'pw-loopback.*node.name=Shru' 2>/dev/null || true
+}
 
 
 add_sink_pulseaudio() {
-    # Loads a sink using pactl, and saves the index returned.
-
-    # Add sink and save the index it returns.
     pa_sink_index=$(pactl load-module module-null-sink \
-                          sink_name="Shru" \
-                          sink_properties=device.description="Shru")
+        sink_name="Shru" \
+        sink_properties=device.description="Shru")
 
-    echo $pa_sink_index > "$VAR_RUN/pa_sink.index"
-    sleep 3  # Give time for it to set up.
+    echo "$pa_sink_index" > "$VAR_RUN/pa_sink.index"
+    sleep 2
 
-    # Restore ALSA settings if the backup file exists.
     local alsa_state_file="$XDG_CONFIG_HOME/asound.state"
-    if [ -f "$alsa_state_file" ]; then
+    if [[ -f "$alsa_state_file" ]]; then
         alsactl --file "$alsa_state_file" restore
     fi
-}  # End of add_sink_pulseaudio()
-
+}
 
 remove_sink_pulseaudio() {
-    # Unloads the PulseAudio sink, and deletes the index file.
-
     echo -n "."
-    pactl unload-module $(<"$VAR_RUN/pa_sink.index")
-    rm "$VAR_RUN/pa_sink.index"
-}  # End of remove_sink_pulseaudio()
 
+    if [[ -f "$VAR_RUN/pa_sink.index" ]]; then
+        pactl unload-module "$(cat "$VAR_RUN/pa_sink.index")" 2>/dev/null || true
+        rm -f "$VAR_RUN/pa_sink.index"
+    fi
+
+    # Remove stale Shru sinks too.
+    while read -r module_id _ module_name module_args; do
+        [[ "$module_name" == "module-null-sink" ]] || continue
+        [[ "$module_args" == *"sink_name=Shru"* ]] || continue
+
+        pactl unload-module "$module_id" 2>/dev/null || true
+    done < <(pactl list modules short)
+}
 
 add_sink() {
     # Adds a sink named Shru (श्रु) to listen to / capture the Mumble output.
@@ -228,54 +243,73 @@ get_mumble_sink_input_index() {
 
 
 add_mic() {
-    # Configures the Shru sink and creates the Broo (ब्रू) source for output.
-
-    # Suppress the output volume to speakers, otherwise we will hear ourselves.
     pactl set-sink-volume Shru 0
 
-    # Set current sink as default sink.
+    local default_sink
     default_sink=$(pactl get-default-sink)
-    pactl set-default-sink $default_sink
 
-    # Move Mumble to Broo sink. For that, we need Mumble sink-input index.
-    pactl move-sink-input $(get_mumble_sink_input_index) Shru
+    local mumble_sink_index
+    mumble_sink_index=$(get_mumble_sink_input_index)
 
-    # Remap the sink monitor to a dedicated source to show up on all apps.
-    # This will be the "Broo" mic. Save the index it returns.
+    if [[ -z "$mumble_sink_index" ]]; then
+        echo
+        echo "ERROR: Mumble sink input was not found."
+        echo
+        pactl list short sink-inputs
+        return 1
+    fi
+
+    pactl move-sink-input "$mumble_sink_index" Shru
+
+    remove_broo_sources
+
     pa_source_index=$(pactl load-module module-remap-source \
-                            master=Shru.monitor \
-                            source_name=Broo \
-                            source_properties=device.description="Broo")
+        master=Shru.monitor \
+        source_name=Broo \
+        source_properties=device.description="Broo")
 
-    echo $pa_source_index > "$VAR_RUN/pa_source.index"
-    sleep 3  # Give time for it to set up.
+    echo "$pa_source_index" > "$VAR_RUN/pa_source.index"
 
-    # Set the Broo source as default source / mic.
+    sleep 2
+
+    pactl set-default-sink "$default_sink"
     pactl set-default-source Broo
 
-    printf 'Done! Use "Broo" or "Monitor of Shru" as your input mic, and '
-    echo -e "enjoy!\n"
-}  # End of add_mic()
+    printf 'Done! Use "Broo" or "Monitor of Shru" as your input mic, '
+    echo -e "and enjoy!\n"
+}
+
+
+remove_broo_sources() {
+    # Remove every module that created a Broo source.
+    # This is deliberately independent of pa_source.index so
+    # crashed/previous Broo instances cannot accumulate.
+
+    while read -r module_id module_name module_args; do
+        [[ "$module_name" == "module-remap-source" ]] || continue
+        [[ "$module_args" == *"source_name=Broo"* ]] || continue
+
+        pactl unload-module "$module_id" 2>/dev/null || true
+    done < <(pactl list modules short)
+
+    rm -f "$VAR_RUN/pa_source.index"
+}
 
 
 remove_mic() {
-    # Unloads the PulseAudio-styled Broo source, and deletes the index file.
-
     echo -n "."
-    pactl unload-module $(<"$VAR_RUN/pa_source.index")
-    rm "$VAR_RUN/pa_source.index"
-}  # End of remove_mic()
+
+    remove_broo_sources
+}
 
 
 check_if_started() {
-    # Check if the fodler already exists.
-
-    if [ -d $VAR_RUN ]; then
+    if [[ -d "$VAR_RUN" ]]; then
         echo "Broo was already started earlier."
         echo "To force start, use 'f' on the starting prompt."
         return 1
     fi
-}  # End of check_if_started()
+}
 
 
 start_broo() {
@@ -324,19 +358,31 @@ fix_certificate_problem() {
 
 
 force_kill_broo() {
-    # Force kill Broo by killing processes and deleting $VAR_RUN folder.
+    echo "Cleaning Broo..."
 
-    rm -rf $VAR_RUN
-    pkill mumble || true
-    pkill mumble-server || true
-    pkill murmurd || true
+    # Remove all Broo virtual sources, even if PID/state files are gone.
+    remove_broo_sources
 
+    # Remove all Shru sinks.
     if [[ $(pactl info | grep "^Server Name") =~ "PipeWire" ]]; then
-        pkill pw-loopback || true
+        pkill -f 'pw-loopback.*node.name=Shru' 2>/dev/null || true
     else
-        pulseaudio -k || true
+        while read -r module_id module_name module_args; do
+            if [[ "$module_name" == "module-null-sink" ]] &&
+               [[ "$module_args" == *"sink_name=Shru"* ]]; then
+                pactl unload-module "$module_id" 2>/dev/null || true
+            fi
+        done < <(pactl list modules short)
     fi
-}  # End of force_kill_broo()
+
+    rm -rf "$VAR_RUN"
+
+    pkill mumble 2>/dev/null || true
+    pkill mumble-server 2>/dev/null || true
+    pkill murmurd 2>/dev/null || true
+
+    echo "Broo audio resources cleaned."
+}
 
 
 stop_broo() {
