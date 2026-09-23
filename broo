@@ -36,6 +36,8 @@ VAR_RUN="/var/run/user/$UID/broo"
 : "${XDG_CONFIG_HOME:=$HOME/.config}"
 BROO_CFG_LOC="$XDG_CONFIG_HOME/broo"
 
+GUI_MODE=false
+
 start_mumble_server() {
     # Starts the Mumble server.
     # The PID is saved automatically due to the config in ini file.
@@ -99,7 +101,7 @@ start_mumble_client () {
     # We prefer offscreen, but there can be a rare case that using offscreen
     # can cause mumble to not connect to server, so we test during setup.
     # A file "no_offscreen" is created if we don't want to do offscreen.
-    if [[ -f "$BROO_CFG_LOC/no_offscreen" ]]; then
+    if [[ "$GUI_MODE" == "true" ]] || [[ -f "$BROO_CFG_LOC/no_offscreen" ]]; then
         nohup mumble "mumble://127.0.0.1" \
             &>"$VAR_RUN/mumble_client.out" &
     else
@@ -457,6 +459,7 @@ case ${1-prompt} in
             initiate "$todo"
             ;;
     -h|--help) help_text ;;
+    -gui) GUI_MODE=true; initiate "s" ;;
     -s|--start) initiate "s" ;;
     -c|--close) initiate "c" ;;
     -q|--force-quit) initiate "q" ;;
