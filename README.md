@@ -19,7 +19,7 @@ The setup script now supports command-line arguments to run specific steps indep
 
 - Fixed a bug that was not cleaning up Virtual mic devices properly after stopping the script, resulting in stale devices and causing unexpected behaviour on KDE plasma (Kubuntu 26) which is using recent PipeWire as default audio flow.
 
-- Replaced CRLF characters causing interpreter errors on Ubuntu 2.
+- Replaced CRLF characters causing interpreter errors on Ubuntu 26
 
 - Added a `-gui` flag to force the Mumble client to launch with its graphical interface instead of offscreen mode:
 
