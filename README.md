@@ -1,3 +1,36 @@
+# Fork Description
+
+This is a fork of [Broo](https://github.com/siddhpant/broo) with the following enhancements - specifically refactored to be compatible with recent Ubuntu/Kubuntu v26 and its default Pipewire audio:
+
+### Enhanced `setup_broo` script
+The setup script now supports command-line arguments to run specific steps independently, useful for debugging or re-running individual setup stages in case some step fails for any reason:
+
+```bash
+./setup_broo --install       # Install dependencies only
+./setup_broo --check-mumble  # Verify mumble installation only
+./setup_broo --setup-mumble  # Set up mumble configuration only
+./setup_broo --copy-broo     # Copy broo command to bin only
+./setup_broo --test-broo     # Test broo offscreen only
+./setup_broo                 # Run all steps (original behaviour)
+./setup_broo --help          # Show usage information
+```
+
+### Enhanced `broo` script
+
+- Fixed a bug that was not cleaning up Virtual mic devices properly after stopping the script, resulting in stale devices and causing unexpected behaviour on KDE plasma (Kubuntu 26) which is using recent PipeWire as default audio flow.
+
+- Replaced CRLF characters causing interpreter errors on Ubuntu 2.
+
+- Added a `-gui` flag to force the Mumble client to launch with its graphical interface instead of offscreen mode:
+
+```bash
+./broo -gui
+```
+
+This is useful when offscreen mode causes connection issues or when you need to interact with the Mumble GUI directly to tweak the settings whenever you want.
+
+---
+
 # Broo
  
 - Connect your phone as microphone wirelessly.
